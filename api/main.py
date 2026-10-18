@@ -6,6 +6,7 @@ instead of being bounced by input validation with a generic message.
 """
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,7 @@ from pydantic import BaseModel, ConfigDict
 
 from agent import scenarios
 from agent.engine import Engine, EngineError
+from agent.money import format_minor
 from agent.registry import Registry
 from agent.service import DealService, ServiceError
 from agent.store import Store
@@ -119,6 +121,15 @@ def create_app(service: DealService | None = None) -> FastAPI:
     def rules() -> dict[str, Any]:
         return {"rules": [{"rule": k, **v} for k, v in svc.docs.items()]}
 
+    @app.get("/samples")
+    def samples() -> dict[str, Any]:
+        """The placeholder sample deals in /data, for the deal builder's "load sample" buttons."""
+        def load(name: str) -> dict[str, Any]:
+            data = json.loads((ROOT / "data" / name).read_text(encoding="utf-8"))
+            data.pop("_notice", None)
+            return data
+        return {"valid": load("sample_deal.json"), "invalid": load("sample_deal_invalid.json")}
+
     # ------------------------------------------------- job 1: the deal
 
     @app.get("/deals")
@@ -183,7 +194,17 @@ def create_app(service: DealService | None = None) -> FastAPI:
     def chain_transfers(deal_id: str) -> dict[str, Any]:
         transfers = svc.chain.read_transfers(deal_id)
         payments = svc.chain.read_payments([t.tx for t in transfers])
-        return {"transfers": [t.__dict__ for t in transfers], "payments": [p.__dict__ for p in payments]}
+        paid: dict[str, int] = {}
+        for p in payments:
+            paid[p.tx] = paid.get(p.tx, 0) + p.amount_minor
+        currency = payments[0].currency if payments else "KES"
+        return {
+            "transfers": [{**t.__dict__, "paid_minor": paid.get(t.tx, 0),
+                           "paid_display": format_minor(paid[t.tx], currency) if t.tx in paid else None}
+                          for t in transfers],
+            "payments": [{**p.__dict__, "amount_display": format_minor(p.amount_minor, p.currency)}
+                         for p in payments],
+        }
 
     if WEB_DIST.exists():
         app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="web")

@@ -14,11 +14,13 @@ from conftest import Clock, lock_deal, wallet
 
 ENGINE = Engine()
 REGISTRY = Registry.load()
+PARTY_IDS = ["artist-a", "basix-market", "broker-c", "studio-d"]
+
+
 def slow(examples: int):
     """The engine takes ~0.3-2 s per query, so examples are few and deadlines off."""
     return settings(max_examples=examples, deadline=None,
                     suppress_health_check=[HealthCheck.function_scoped_fixture])
-PARTY_IDS = ["artist-a", "basix-market", "broker-c", "studio-d"]
 
 
 @st.composite

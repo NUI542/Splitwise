@@ -205,6 +205,7 @@ class DealService:
                            "approved_at": iso(a["approved_at"])} for a in approvals],
             "pending_approvals": [p["id"] for p in terms["parties"] if p["id"] not in approved],
             "display": self._terms_display(terms),
+            "draft": F.terms_to_draft(terms),
         }
 
     def list_deals(self) -> list[dict[str, Any]]:
@@ -451,7 +452,8 @@ class DealService:
                 "field": str(field),
                 "field_label": FIELD_LABELS.get(str(field), str(field)),
                 "statement": self._statement(str(rule)),
-                "detail": detail(str(rule), data, self.registry, currency),
+                "detail": detail(str(rule), data, self.registry, currency,
+                                 FIELD_LABELS.get(str(field), str(field))),
                 "data": data,
             }
             (errors if severity == "error" else warnings).append(entry)
@@ -468,7 +470,8 @@ class DealService:
         shares = {s["party_id"]: s["value"] for s in terms["shares"]}
         names = {p["id"]: p["name"] for p in terms["parties"]}
         lines = [{"party": l[1], "name": names.get(l[1], l[1]), "role": str(l[2]),
-                  "share_bps": shares.get(l[1]), "amount_minor": l[4], "amount_display": m(l[4])}
+                  "share_bps": shares.get(l[1]), "share_display": format_bps(shares.get(l[1], 0)),
+                  "amount_minor": l[4], "amount_display": m(l[4])}
                  for l in raw_lines]
         order = {p["id"]: i for i, p in enumerate(terms["parties"])}
         lines.sort(key=lambda l: order.get(l["party"], 99))
@@ -538,7 +541,14 @@ class DealService:
         _, tx, edition, classification, rule, version, evidence, owed, steps = item
         owed_rows = [{"party": o[1], "name": self.registry.name(o[1]), "wallet": o[2], "due_minor": o[3],
                       "received_minor": o[4], "short_minor": o[5], "amount_minor": o[5],
+                      "due_display": format_minor(o[3], currency),
+                      "received_display": format_minor(o[4], currency),
                       "amount_display": format_minor(o[5], currency)} for o in owed]
+        if version != -1:  # list co-owners in the deal's own order, artist first
+            parties = self.store.version(deal_id, version)["terms"]["parties"]
+            order = {p["id"]: i for i, p in enumerate(parties)}
+            owed_rows.sort(key=lambda o: order.get(o["party"], 99))
+        total_owed = sum(o["short_minor"] for o in owed_rows)
         return {
             "deal_id": deal_id,
             "tx": tx,
@@ -548,7 +558,11 @@ class DealService:
             "statement": self._statement(str(rule)),
             "deal_version": version if version != -1 else None,
             "evidence": pairs(evidence),
+            "evidence_display": {k: format_minor(v, currency) for k, v in pairs(evidence).items()
+                                 if k.endswith("-minor") and isinstance(v, int)},
             "owed": owed_rows,
+            "total_owed_minor": total_owed,
+            "total_owed_display": format_minor(total_owed, currency) if owed_rows else None,
             "steps": normalize_steps(steps),
         }
 
@@ -563,6 +577,8 @@ class DealService:
         view["history"] = [{**h, "at": iso(h["at"])} for h in flag["history"]]
         view["total_owed_minor"] = sum(o["short_minor"] for o in flag["owed"])
         view["total_owed_display"] = format_minor(view["total_owed_minor"], currency)
+        view["evidence_display"] = {k: format_minor(v, currency) for k, v in flag["evidence"].items()
+                                    if k.endswith("-minor") and isinstance(v, int)}
         return view
 
     # =========================================================== helpers

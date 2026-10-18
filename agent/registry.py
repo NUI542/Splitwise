@@ -29,7 +29,7 @@ class Registry:
         if owner:
             return self.parties[owner]["name"]
         if party_or_wallet.startswith("mint:"):
-            return f"the mint for {party_or_wallet[5:]}"
+            return f"Mint ({party_or_wallet[5:]})"
         return party_or_wallet
 
     def first_wallet(self, party_id: str) -> str | None:

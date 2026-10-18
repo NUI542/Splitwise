@@ -21,8 +21,10 @@ def _fmt_time(ts: Any) -> str:
         return str(ts)
 
 
-def detail(rule: str, data: dict[str, Any], registry: Registry, currency: str) -> str:
+def detail(rule: str, data: dict[str, Any], registry: Registry, currency: str, field_label: str = "term") -> str:
     def name(x: Any) -> str:
+        if x in (None, ""):
+            return "A co-owner with no ID"
         return f"{registry.name(x)} ({x})" if x in registry.parties else str(x)
 
     def money(x: Any) -> str:
@@ -33,8 +35,8 @@ def detail(rule: str, data: dict[str, Any], registry: Registry, currency: str) -
 
     d = data
     templates: dict[str, Callable[[], str]] = {
-        "field-missing": lambda: "This term has no value yet.",
-        "field-unreadable": lambda: f"\"{d.get('raw')}\" isn't a number.",
+        "field-missing": lambda: f"The {field_label} has no value yet.",
+        "field-unreadable": lambda: f"The {field_label} \"{d.get('raw')}\" isn't a number.",
         "party-duplicate-id": lambda: f"{name(d['party'])} is listed on rows {', '.join(map(str, d['rows']))}.",
         "party-duplicate-wallet": lambda: (
             f"{name(d['parties'][0])} and {name(d['parties'][1])} both use wallet {d['wallet']}."),

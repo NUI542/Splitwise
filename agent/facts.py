@@ -62,6 +62,36 @@ def normalize_terms(draft: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def terms_to_draft(terms: dict[str, Any]) -> dict[str, Any]:
+    """Stored terms -> the deal builder's input (major units and percentages as text)."""
+    cur = terms.get("currency") or "KES"
+
+    def major(minor: Any, currency: str) -> Any:
+        if not isinstance(minor, int):
+            return minor
+        exp = money.exponent(currency)
+        sign = "-" if minor < 0 else ""
+        whole, frac = divmod(abs(minor), 10**exp)
+        return f"{sign}{whole}.{str(frac).zfill(exp)}" if exp else f"{sign}{whole}"
+
+    def percent(bps: Any) -> Any:
+        return f"{bps / 100:.2f}" if isinstance(bps, (int, float)) else bps
+
+    return {
+        "artwork_id": terms.get("artwork_id"),
+        "currency": cur,
+        "edition_count": terms.get("edition_count"),
+        "price": major(terms.get("price_minor"), terms.get("price_currency") or cur),
+        "price_currency": terms.get("price_currency") or cur,
+        "royalty_percent": percent(terms.get("royalty_bps")),
+        "parties": [dict(p) for p in terms.get("parties", [])],
+        "shares": [{"party_id": s["party_id"],
+                    "kind": "fixed" if s["kind"] == "fixed" else "percent",
+                    "value": major(s["value"], cur) if s["kind"] == "fixed" else percent(s["value"])}
+                   for s in terms.get("shares", [])],
+    }
+
+
 def terms_hash(terms: dict[str, Any]) -> str:
     canonical = json.dumps(_jsonable(terms), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
