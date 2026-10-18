@@ -1,0 +1,25 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.hypothesis/
+*.egg-info/
+
+# Local data (the SQLite database is rebuilt from /data on reset)
+*.db
+*.db-journal
+var/
+
+# Secrets
+.env
+
+# Node / web
+node_modules/
+web/dist/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

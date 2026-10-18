@@ -1,0 +1,31 @@
+{
+  "_notice": "PLACEHOLDER DATA. Every artwork, person, organisation role, share and wallet in this file is invented for the demo. None of it is a real artwork, a real person, real consent, or an agreement with BASIX.MARKET or any partner.",
+  "artworks": [
+    {
+      "id": "aw-placeholder-001",
+      "title": "[PLACEHOLDER] Harvest Light (mixed media on canvas)",
+      "rights_holder": "artist-a",
+      "consented_editions": 10,
+      "consent_reference": "PLACEHOLDER consent record: rights holder agrees to up to 10 digital editions of the physical work, signed in-app (see data/agreement.md).",
+      "placeholder": true
+    },
+    {
+      "id": "aw-placeholder-002",
+      "title": "[PLACEHOLDER] Second Study (ink on paper)",
+      "rights_holder": "artist-a",
+      "consented_editions": 5,
+      "consent_reference": "PLACEHOLDER consent record for up to 5 digital editions.",
+      "placeholder": true
+    }
+  ],
+  "parties": [
+    {"id": "artist-a", "name": "Artist A (placeholder)", "kind": "co-owner", "wallets": ["sim-wallet-artist-a"]},
+    {"id": "basix-market", "name": "BASIX.MARKET (placeholder terms)", "kind": "co-owner", "wallets": ["sim-wallet-basix-market"]},
+    {"id": "broker-c", "name": "GTM Broker C (placeholder)", "kind": "co-owner", "wallets": ["sim-wallet-broker-c"]},
+    {"id": "studio-d", "name": "Print Studio D (placeholder)", "kind": "co-owner", "wallets": ["sim-wallet-studio-d"]},
+    {"id": "collector-1", "name": "Collector 1 (placeholder)", "kind": "collector", "wallets": ["sim-wallet-collector-1"]},
+    {"id": "collector-2", "name": "Collector 2 (placeholder)", "kind": "collector", "wallets": ["sim-wallet-collector-2"]},
+    {"id": "collector-3", "name": "Collector 3 (placeholder)", "kind": "collector", "wallets": ["sim-wallet-collector-3"]},
+    {"id": "collector-4", "name": "Collector 4 (placeholder)", "kind": "collector", "wallets": ["sim-wallet-collector-4"]}
+  ]
+}
