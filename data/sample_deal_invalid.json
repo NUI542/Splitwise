@@ -1,0 +1,20 @@
+{
+  "_notice": "PLACEHOLDER terms, deliberately wrong for the demo: shares total 110% and the royalty is 12% (a warning, not an error).",
+  "artwork_id": "aw-placeholder-001",
+  "currency": "KES",
+  "edition_count": 10,
+  "price": "15000.00",
+  "royalty_percent": "12",
+  "parties": [
+    {"id": "artist-a", "name": "Artist A (placeholder)", "role": "artist", "wallet": "sim-wallet-artist-a"},
+    {"id": "basix-market", "name": "BASIX.MARKET (placeholder terms)", "role": "co-owner", "wallet": "sim-wallet-basix-market"},
+    {"id": "broker-c", "name": "GTM Broker C (placeholder)", "role": "co-owner", "wallet": "sim-wallet-broker-c"},
+    {"id": "studio-d", "name": "Print Studio D (placeholder)", "role": "co-owner", "wallet": "sim-wallet-studio-d"}
+  ],
+  "shares": [
+    {"party_id": "artist-a", "kind": "percent", "value": "70"},
+    {"party_id": "basix-market", "kind": "percent", "value": "15"},
+    {"party_id": "broker-c", "kind": "percent", "value": "15"},
+    {"party_id": "studio-d", "kind": "percent", "value": "10"}
+  ]
+}

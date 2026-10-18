@@ -101,6 +101,13 @@
 (rule-doc primary-seller-not-mint sale "A primary sale comes from the deal's mint.")
 (rule-doc sale-price-invalid sale "The sale price is a whole, positive amount within range.")
 (rule-doc sale-currency-mismatch sale "The sale is in the deal's currency.")
+;; Payout steps: each step in a payout trace names one of these.
+(rule-doc primary-split payout "A primary sale's price is split among the co-owners by share.")
+(rule-doc royalty-amount payout "On a resale, the royalty is the price times the royalty rate, rounded down to the minor unit.")
+(rule-doc seller-proceeds payout "The seller of a resale receives the price minus the royalty.")
+(rule-doc share-split payout "Each co-owner receives their share of the amount, rounded down to the minor unit.")
+(rule-doc leftover-to-artist payout "Whatever is left after every share is rounded down goes to the artist.")
+(rule-doc sum-check payout "The payout lines add up exactly to the amount paid.")
 ;; Watch stage: how each transfer on the chain is classified.
 (rule-doc primary-sale-recorded watch "A mint that matches a recorded primary sale.")
 (rule-doc mint-without-ledger-sale watch "A mint with no recorded primary sale can't be verified.")

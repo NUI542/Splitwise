@@ -1,0 +1,25 @@
+{
+  "_notice": "The shape of the records the simulated chain produces (agent/chain/adapter.py), for the golden scenarios. PLACEHOLDER wallets. Amounts the agent works out on BASIX.MARKET sales are shown as null: they are the answers in golden_scenarios.csv, which are worked out by hand.",
+  "transfers": [
+    {"tx": "simtx-000001", "collection": "deal-1", "edition": 1, "from_wallet": "mint:deal-1", "to_wallet": "sim-wallet-collector-1", "ts": 1792310400, "seq": 1, "scenario": "G1"},
+    {"tx": "simtx-000002", "collection": "deal-1", "edition": 2, "from_wallet": "mint:deal-1", "to_wallet": "sim-wallet-collector-2", "ts": 1792310460, "seq": 2, "scenario": "G2"},
+    {"tx": "simtx-000003", "collection": "deal-1", "edition": 1, "from_wallet": "sim-wallet-collector-1", "to_wallet": "sim-wallet-collector-3", "ts": 1792310520, "seq": 3, "scenario": "G3"},
+    {"tx": "simtx-000004", "collection": "deal-1", "edition": 1, "from_wallet": "sim-wallet-collector-3", "to_wallet": "sim-wallet-collector-4", "ts": 1792310580, "seq": 4, "scenario": "G4"},
+    {"tx": "simtx-000005", "collection": "deal-1", "edition": 2, "from_wallet": "sim-wallet-collector-2", "to_wallet": "sim-wallet-collector-1", "ts": 1792310640, "seq": 5, "scenario": "G5"},
+    {"tx": "simtx-000006", "collection": "deal-1", "edition": 2, "from_wallet": "sim-wallet-collector-1", "to_wallet": "sim-wallet-collector-3", "ts": 1792310700, "seq": 6, "scenario": "G6"},
+    {"tx": "simtx-000007", "collection": "deal-1", "edition": 1, "from_wallet": "sim-wallet-collector-4", "to_wallet": "sim-wallet-collector-2", "ts": 1792310760, "seq": 7, "scenario": "G7"},
+    {"tx": "simtx-000008", "collection": "deal-1", "edition": 2, "from_wallet": "sim-wallet-collector-3", "to_wallet": "sim-wallet-collector-4", "ts": 1792310820, "seq": 8, "scenario": "G8"},
+    {"tx": "simtx-000009", "collection": "deal-1", "edition": 2, "from_wallet": "sim-wallet-collector-4", "to_wallet": "sim-wallet-collector-1", "ts": 1792310880, "seq": 9, "scenario": "G9"}
+  ],
+  "payments": [
+    {"tx": "simtx-000001", "from_wallet": "sim-wallet-collector-1", "to_wallet": "sim-wallet-artist-a", "amount_minor": null, "currency": "KES"},
+    {"tx": "simtx-000001", "from_wallet": "sim-wallet-collector-1", "to_wallet": "sim-wallet-basix-market", "amount_minor": null, "currency": "KES"},
+    {"tx": "simtx-000001", "from_wallet": "sim-wallet-collector-1", "to_wallet": "sim-wallet-broker-c", "amount_minor": null, "currency": "KES"},
+    {"tx": "simtx-000001", "from_wallet": "sim-wallet-collector-1", "to_wallet": "sim-wallet-studio-d", "amount_minor": null, "currency": "KES"},
+    {"tx": "simtx-000003", "from_wallet": "sim-wallet-collector-3", "to_wallet": "sim-wallet-collector-1", "amount_minor": null, "currency": "KES", "_note": "seller's proceeds"},
+    {"tx": "simtx-000003", "from_wallet": "sim-wallet-collector-3", "to_wallet": "sim-wallet-artist-a", "amount_minor": null, "currency": "KES", "_note": "royalty share; one payment per co-owner"},
+    {"tx": "simtx-000006", "from_wallet": "sim-wallet-collector-3", "to_wallet": "sim-wallet-collector-1", "amount_minor": 2500000, "currency": "KES", "_note": "the full price to the seller; no royalty payments"},
+    {"tx": "simtx-000009", "from_wallet": "sim-wallet-collector-1", "to_wallet": "sim-wallet-collector-4", "amount_minor": 1150000, "currency": "KES", "_note": "the price minus the KES 500.00 paid to the artist"},
+    {"tx": "simtx-000009", "from_wallet": "sim-wallet-collector-1", "to_wallet": "sim-wallet-artist-a", "amount_minor": 50000, "currency": "KES"}
+  ]
+}

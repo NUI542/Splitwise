@@ -1,0 +1,10 @@
+id,step,description,channel,type,edition,seller,buyer,price_kes,royalty_paid_to,expected_royalty_minor,expected_seller_minor,expected_artist_a_minor,expected_basix_market_minor,expected_broker_c_minor,expected_studio_d_minor,expected_classification,expected_owed_artist_a_minor,expected_owed_basix_market_minor,expected_owed_broker_c_minor,expected_owed_studio_d_minor
+G1,1,First sale of edition 1,platform,primary,1,mint:deal-1,collector-1,15000.00,,,,,,,,,,,,
+G2,2,First sale of edition 2,platform,primary,2,mint:deal-1,collector-2,15000.00,,,,,,,,,,,,
+G3,3,Resale of edition 1 at a higher price,platform,resale,1,collector-1,collector-3,20000.00,all,,,,,,,,,,,
+G4,4,Second resale of edition 1 at a lower price,platform,resale,1,collector-3,collector-4,18500.00,all,,,,,,,,,,,
+G5,5,Resale of edition 2 at a price that doesn't divide evenly,platform,resale,2,collector-2,collector-1,1234.57,all,,,,,,,,,,,
+G6,6,Resale of edition 2 elsewhere with no royalty paid,off-platform,resale,2,collector-1,collector-3,25000.00,none,,,,,,,,,,,
+G7,7,Gift of edition 1 (no payment),off-platform,gift,1,collector-4,collector-2,,,,,,,,,,,,,
+G8,8,Resale of edition 2 with a price written to 3 decimals,platform,resale,2,collector-3,collector-4,9999.999,all,,,,,,,,,,,
+G9,9,Resale of edition 2 elsewhere with part of the royalty paid (KES 500.00 to artist-a only; the seller received the rest of the price),off-platform,resale,2,collector-4,collector-1,12000.00,artist-a:500.00,,,,,,,,,,,
