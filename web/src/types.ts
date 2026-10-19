@@ -199,6 +199,8 @@ export interface RegistryArtwork {
   rights_holder: string;
   consented_editions: number;
   consent_reference: string;
+  placeholder?: boolean;
+  synthetic?: boolean; // added in the app rather than data/registry.json
 }
 
 export interface Registry {

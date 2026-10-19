@@ -1,6 +1,6 @@
 import type {
-  CheckReport, DealListItem, Draft, Explanation, Flag, FlagStatus, Registry, Report, Sale, SimResult,
-  VersionView, WatchRow,
+  CheckReport, DealListItem, Draft, Explanation, Flag, FlagStatus, Registry, RegistryArtwork, RegistryParty,
+  Report, Sale, SimResult, VersionView, WatchRow,
 } from "./types";
 
 export class ApiError extends Error {
@@ -29,7 +29,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const api = {
   registry: () => request<Registry>("GET", "/registry"),
-  samples: () => request<{ valid: Draft; invalid: Draft }>("GET", "/samples"),
+  /** The valid and broken example deals, written for the chosen artwork. */
+  samples: (artworkId?: string) =>
+    request<{ valid: Draft; invalid: Draft }>("GET", artworkId ? `/samples?artwork_id=${encodeURIComponent(artworkId)}` : "/samples"),
+  addArtwork: (body: { title: string; consented_editions: string; rights_holder?: string; new_artist_name?: string }) =>
+    request<{ artwork: RegistryArtwork; rights_holder: RegistryParty; created_artist: boolean }>("POST", "/artworks", body),
   deals: () => request<DealListItem[]>("GET", "/deals"),
   check: (draft: Draft, dealId?: string | null) =>
     request<CheckReport>("POST", "/deals/check", { ...draft, deal_id: dealId ?? null }),

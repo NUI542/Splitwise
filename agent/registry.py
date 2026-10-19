@@ -19,6 +19,13 @@ class Registry:
     def load(cls, path: Path = REGISTRY_PATH) -> "Registry":
         return cls(json.loads(path.read_text(encoding="utf-8")))
 
+    def extended(self, parties: list[dict[str, Any]], artworks: list[dict[str, Any]]) -> "Registry":
+        """This registry plus synthetic parties and artworks added in the app."""
+        data = dict(self.data)
+        data["parties"] = list(self.data.get("parties", [])) + parties
+        data["artworks"] = list(self.data.get("artworks", [])) + artworks
+        return Registry(data)
+
     def name(self, party_or_wallet: str | None) -> str:
         """A display name for a party ID or a wallet."""
         if not party_or_wallet:

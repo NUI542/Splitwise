@@ -25,9 +25,10 @@ export function App() {
   const [target, setTarget] = useState<{ saleId: string; party: string } | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
-  useEffect(() => {
+  const reloadRegistry = useCallback(() => {
     api.registry().then(setRegistry).catch(() => setProblem("Can't reach the API. Start it with: uvicorn api.main:create_app --factory"));
   }, []);
+  useEffect(() => { reloadRegistry(); }, [reloadRegistry]);
 
   useEffect(() => { api.deals().then(setDeals).catch(() => undefined); }, [tick]);
 
@@ -36,7 +37,7 @@ export function App() {
   async function reset() {
     if (!window.confirm("Wipe every deal, sale, flag and chain record?")) return;
     await api.sim("reset");
-    setDealId(null); setTarget(null); changed();
+    setDealId(null); setTarget(null); changed(); reloadRegistry();
   }
 
   async function seed() {
@@ -77,7 +78,7 @@ export function App() {
         {registry && (
           <>
             <div hidden={tab !== "deal"}>
-              <DealBuilder registry={registry} deals={deals} dealId={dealId} onSelectDeal={setDealId} onChanged={changed} tick={tick} />
+              <DealBuilder registry={registry} deals={deals} dealId={dealId} onSelectDeal={setDealId} onChanged={changed} onRegistryChanged={reloadRegistry} tick={tick} />
             </div>
             <div hidden={tab !== "sales"}>
               <Sales registry={registry} deals={deals} tick={tick} onChanged={changed}

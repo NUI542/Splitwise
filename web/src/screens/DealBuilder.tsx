@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, api } from "../api";
 import { Card, Facts, Findings, Notice, RuleTag, Spinner, Verdict, short, when } from "../components";
-import type { CheckReport, DealListItem, Draft, Registry, Report, VersionView } from "../types";
+import type { CheckReport, DealListItem, Draft, Registry, RegistryArtwork, Report, VersionView } from "../types";
 
 interface Row {
   key: string;
@@ -68,22 +68,24 @@ interface Props {
   dealId: string | null;
   onSelectDeal: (id: string | null) => void;
   onChanged: () => void;
+  onRegistryChanged: () => void;
   tick: number; // bumps whenever data changes elsewhere
 }
 
-export function DealBuilder({ registry, deals, dealId, onSelectDeal, onChanged, tick }: Props) {
+const DEFAULT_ARTWORK = "aw-placeholder-001";
+const ADD_ARTWORK = "__add__";
+
+export function DealBuilder({ registry, deals, dealId, onSelectDeal, onChanged, onRegistryChanged, tick }: Props) {
   const [form, setForm] = useState<Form>(EMPTY);
   const [baseDeal, setBaseDeal] = useState<string | null>(null); // the deal a new version is for
   const [report, setReport] = useState<CheckReport | null>(null);
   const [checking, setChecking] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [samples, setSamples] = useState<{ valid: Draft; invalid: Draft } | null>(null);
+  const [adding, setAdding] = useState(false); // the "add a synthetic artwork" form is open
   // The terms last saved (or loaded from a version): saving them again would change nothing.
   const [savedAs, setSavedAs] = useState<{ hash: string; version: number } | null>(null);
   const seq = useRef(0);
-
-  useEffect(() => { api.samples().then(setSamples).catch(() => undefined); }, []);
 
   // Live check: every change goes to the agent (debounced); stale answers are dropped.
   useEffect(() => {
@@ -135,6 +137,20 @@ export function DealBuilder({ registry, deals, dealId, onSelectDeal, onChanged, 
     setSavedAs(saved);
   }
 
+  /** The valid or broken example, written by the API for the chosen artwork. */
+  async function loadExample(kind: "valid" | "invalid") {
+    const artworkId = form.artwork_id || DEFAULT_ARTWORK;
+    const title = registry.artworks.find((a) => a.id === artworkId)?.title ?? artworkId;
+    try {
+      const examples = await api.samples(artworkId);
+      load(examples[kind], null, kind === "valid"
+        ? `Loaded the valid example for ${title}.`
+        : `Loaded the broken example for ${title}: shares total 110% and the royalty is 12%.`);
+    } catch (e) {
+      setProblem((e as Error).message);
+    }
+  }
+
   async function save() {
     setMessage(null);
     try {
@@ -157,19 +173,23 @@ export function DealBuilder({ registry, deals, dealId, onSelectDeal, onChanged, 
         <Card
           title={baseDeal ? `New version of ${baseDeal}` : "New deal"}
           actions={<>
-            {samples && <button className="small" onClick={() => load(samples.invalid, null, "Loaded the broken sample: shares total 110% and the royalty is 12%.")}>Load broken sample</button>}
-            {samples && <button className="small" onClick={() => load(samples.valid, null, "Loaded the sample deal.")}>Load valid sample</button>}
+            <button className="small" title="Written for the chosen artwork" onClick={() => loadExample("invalid")}>Load broken example</button>
+            <button className="small" title="Written for the chosen artwork" onClick={() => loadExample("valid")}>Load valid example</button>
             <button className="small" onClick={() => load(toDraft(EMPTY), null, "Started a blank deal.")}>Clear</button>
           </>}
         >
           <div className="stack">
             {message && <Notice>{message}</Notice>}
             <div className="fields">
-              <label className={cls("artwork_id")}>
+              <label className={`${cls("artwork_id")} wide`}>
                 <span>Artwork</span>
-                <select value={form.artwork_id} onChange={(e) => set("artwork_id", e.target.value)}>
+                <select value={form.artwork_id} onChange={(e) => {
+                  if (e.target.value === ADD_ARTWORK) setAdding(true);
+                  else set("artwork_id", e.target.value);
+                }}>
                   <option value="">Choose…</option>
                   {registry.artworks.map((a) => <option key={a.id} value={a.id}>{a.title}</option>)}
+                  <option value={ADD_ARTWORK}>+ Add a synthetic artwork…</option>
                 </select>
               </label>
               <label className={cls("currency")}>
@@ -193,7 +213,17 @@ export function DealBuilder({ registry, deals, dealId, onSelectDeal, onChanged, 
               <p className="muted small">
                 Rights holder: <strong>{registry.parties.find((p) => p.id === artwork.rights_holder)?.name ?? artwork.rights_holder}</strong>
                 {" · "}consented to up to <strong>{artwork.consented_editions}</strong> editions.
+                {" "}The example buttons write their deals for this artwork.
               </p>
+            )}
+            {adding && (
+              <AddArtwork registry={registry} onCancel={() => setAdding(false)}
+                onAdded={(art) => {
+                  setAdding(false);
+                  onRegistryChanged();
+                  set("artwork_id", art.id);
+                  setMessage(`Added ${art.title}. Load its valid or broken example, or write a deal for it.`);
+                }} />
             )}
 
             <div>
@@ -389,5 +419,72 @@ function Versions({ dealId, tick, onChanged, onEdit }: {
         </div>
       </div>
     </Card>
+  );
+}
+
+function AddArtwork({ registry, onAdded, onCancel }: {
+  registry: Registry; onAdded: (artwork: RegistryArtwork) => void; onCancel: () => void;
+}) {
+  const NEW = "__new__";
+  const [title, setTitle] = useState("");
+  const [consent, setConsent] = useState("10");
+  const [holder, setHolder] = useState(NEW);
+  const [artistName, setArtistName] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const coOwners = registry.parties.filter((p) => p.kind === "co-owner");
+  const shownTitle = title.trim().replace(/^\[placeholder\]\s*/i, "");
+
+  async function submit() {
+    setBusy(true); setProblem(null);
+    try {
+      const out = await api.addArtwork({
+        title, consented_editions: consent,
+        ...(holder === NEW ? { new_artist_name: artistName } : { rights_holder: holder }),
+      });
+      onAdded(out.artwork);
+    } catch (e) {
+      setProblem((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="add-artwork">
+      <div className="row spread">
+        <h3>Add a synthetic artwork</h3>
+        <span className="tag-placeholder">[PLACEHOLDER]</span>
+      </div>
+      <p className="muted small">
+        It's saved with a [PLACEHOLDER] tag and a placeholder consent record, so the demo can be run again
+        on a fresh artwork without resetting. Reset everything removes it.
+      </p>
+      <div className="fields">
+        <label className="field"><span>Title</span>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Blue Hour" />
+        </label>
+        <label className="field"><span>Editions consented to</span>
+          <input inputMode="numeric" value={consent} onChange={(e) => setConsent(e.target.value)} />
+        </label>
+        <label className="field"><span>Rights holder (the artist)</span>
+          <select value={holder} onChange={(e) => setHolder(e.target.value)}>
+            <option value={NEW}>New placeholder artist…</option>
+            {coOwners.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </label>
+        {holder === NEW && (
+          <label className="field"><span>Artist's name</span>
+            <input value={artistName} onChange={(e) => setArtistName(e.target.value)} placeholder="Amina" />
+          </label>
+        )}
+      </div>
+      {shownTitle && <p className="muted small">It will be listed as <strong>[PLACEHOLDER] {shownTitle}</strong>.</p>}
+      <div className="row">
+        <button className="primary small" disabled={busy || !title.trim()} onClick={submit}>Add artwork</button>
+        <button className="small" onClick={onCancel}>Cancel</button>
+      </div>
+      {problem && <Notice kind="error">{problem}</Notice>}
+    </div>
   );
 }

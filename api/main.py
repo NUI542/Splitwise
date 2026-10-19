@@ -6,7 +6,6 @@ instead of being bounced by input validation with a generic message.
 """
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 from typing import Any
@@ -75,6 +74,13 @@ class FlagUpdate(BaseModel):
     reason: str = ""
 
 
+class NewArtwork(BaseModel):
+    title: Any = None
+    consented_editions: Any = None
+    rights_holder: Any = None  # an existing co-owner's ID, or
+    new_artist_name: Any = None  # the name of a new placeholder artist
+
+
 def default_service() -> DealService:
     db_path = os.environ.get("EDA_DB_PATH", str(ROOT / "var" / "edition_deals.db"))
     return DealService(Store(db_path), Engine(), Registry.load())
@@ -122,13 +128,14 @@ def create_app(service: DealService | None = None) -> FastAPI:
         return {"rules": [{"rule": k, **v} for k, v in svc.docs.items()]}
 
     @app.get("/samples")
-    def samples() -> dict[str, Any]:
-        """The placeholder sample deals in /data, for the deal builder's "load sample" buttons."""
-        def load(name: str) -> dict[str, Any]:
-            data = json.loads((ROOT / "data" / name).read_text(encoding="utf-8"))
-            data.pop("_notice", None)
-            return data
-        return {"valid": load("sample_deal.json"), "invalid": load("sample_deal_invalid.json")}
+    def samples(artwork_id: str | None = None) -> dict[str, Any]:
+        """The valid and broken example deals, written for the chosen artwork."""
+        return svc.examples(artwork_id)
+
+    @app.post("/artworks")
+    def add_artwork(body: NewArtwork) -> dict[str, Any]:
+        """Add a synthetic artwork, tagged [PLACEHOLDER], with its consent record."""
+        return svc.add_artwork(body.model_dump())
 
     # ------------------------------------------------- job 1: the deal
 

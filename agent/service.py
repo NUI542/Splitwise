@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable
 
 from . import facts as F
@@ -25,6 +27,7 @@ from .money import format_bps, format_minor, to_minor, to_number
 from .registry import Registry
 from .store import Store
 
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 FLAGGED = ("SALE_ROYALTY_MISSING", "TRANSFER_UNVERIFIED")
 FLAG_STATUSES = ("OPEN", "RESOLVED", "DISMISSED")
 FIELD_ORDER = ["artwork_id", "currency", "edition_count", "price", "royalty", "parties", "shares",
@@ -60,6 +63,10 @@ class Conflict(ServiceError):
     status = 409
 
 
+def _slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+
+
 def iso(ts: int | None) -> str | None:
     if ts is None:
         return None
@@ -89,9 +96,18 @@ class DealService:
         self.store = store
         self.chain = SimulatedChain(store.conn)
         self.engine = engine
-        self.registry = registry
+        self.base_registry = registry
+        self._registry: Registry | None = None
         self.clock = clock or time.time
         self.docs = engine.rule_docs()
+
+    @property
+    def registry(self) -> Registry:
+        """data/registry.json plus the synthetic artworks and artists added in the app."""
+        if self._registry is None:
+            self._registry = self.base_registry.extended(self.store.synthetic_parties(),
+                                                         self.store.synthetic_artworks())
+        return self._registry
 
     def now(self) -> int:
         return int(self.clock())
@@ -99,6 +115,111 @@ class DealService:
     def reset(self) -> None:
         self.store.reset()
         self.chain = SimulatedChain(self.store.conn)
+        self._registry = None
+
+    # ===================================================== the registry
+
+    def add_artwork(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Add a synthetic artwork, always tagged [PLACEHOLDER], with its consent record.
+
+        The rights holder is an existing co-owner (`rights_holder`) or a new
+        placeholder artist (`new_artist_name`), who gets a simulated wallet so
+        a deal for the artwork can pass every rule.
+        """
+        title = str(request.get("title") or "").strip()
+        title = re.sub(r"^\[placeholder\]\s*", "", title, flags=re.IGNORECASE)
+        if not title:
+            raise Rejected("Give the artwork a title.", "artwork-title-missing")
+        consented = to_number(request.get("consented_editions"))
+        if not isinstance(consented, int) or consented < 1:
+            raise Rejected("The consented edition count is a whole number of at least 1.",
+                           "artwork-consent-invalid")
+
+        new_party = None
+        new_name = str(request.get("new_artist_name") or "").strip()
+        holder_id = str(request.get("rights_holder") or "").strip()
+        if new_name:
+            if "placeholder" not in new_name.lower():
+                new_name = f"{new_name} (placeholder)"
+            party_id = self._unique_id(_slug(new_name.replace("(placeholder)", "")) or "artist",
+                                       self.registry.parties)
+            new_party = {"id": party_id, "name": new_name, "kind": "co-owner",
+                         "wallets": [f"sim-wallet-{party_id}"]}
+            holder_id, holder_name = party_id, new_name
+        else:
+            holder = self.registry.parties.get(holder_id)
+            if holder is None or holder.get("kind") != "co-owner" or not holder.get("wallets"):
+                raise Rejected("Choose a rights holder from the co-owners, or name a new placeholder artist.",
+                               "artwork-rights-holder-unknown")
+            holder_name = holder["name"]
+
+        artwork_id = self._unique_id(f"aw-placeholder-{len(self.registry.artworks) + 1:03d}",
+                                     self.registry.artworks)
+        today = datetime.fromtimestamp(self.now(), tz=timezone.utc).strftime("%d %b %Y")
+        artwork = {
+            "id": artwork_id,
+            "title": f"[PLACEHOLDER] {title}",
+            "rights_holder": holder_id,
+            "consented_editions": consented,
+            "consent_reference": (f"PLACEHOLDER consent record: {holder_name} agrees to up to {consented} "
+                                  f"digital editions of the physical work, recorded in the app on {today}."),
+        }
+        now = self.now()
+        with self.store.transaction() as conn:
+            if new_party:
+                self.store.add_synthetic_party(conn, new_party, now)
+            self.store.add_synthetic_artwork(conn, artwork, now)
+        self._registry = None
+        return {"artwork": self.registry.artworks[artwork_id],
+                "rights_holder": self.registry.parties[holder_id],
+                "created_artist": new_party is not None}
+
+    def examples(self, artwork_id: str | None = None) -> dict[str, Any]:
+        """The valid and broken example deals, written for the chosen artwork.
+
+        Both start from data/sample_deal*.json. The artwork's rights holder
+        becomes the artist, and the edition count is kept within their consent,
+        so the valid example passes every rule and the broken one fails only on
+        what it is meant to show (shares totalling 110%, plus a 12% royalty
+        warning).
+        """
+        artwork_id = artwork_id or "aw-placeholder-001"
+        art = self.registry.artworks.get(artwork_id)
+        if art is None:
+            raise NotFound(f"There is no artwork {artwork_id}.", "artwork-not-found")
+        holder = self.registry.parties[art["rights_holder"]]
+        out = {}
+        for key, name in (("valid", "sample_deal.json"), ("invalid", "sample_deal_invalid.json")):
+            draft = json.loads((DATA_DIR / name).read_text(encoding="utf-8"))
+            draft.pop("_notice", None)
+            draft["artwork_id"] = artwork_id
+            draft["edition_count"] = min(int(draft["edition_count"]), int(art["consented_editions"]))
+            template_artist = next(p for p in draft["parties"] if p["role"] == "artist")["id"]
+            if holder["id"] != template_artist:
+                # The rights holder takes the artist's place and share. If they were
+                # already a co-owner in the sample, the sample artist takes theirs.
+                swap = {template_artist: holder["id"], holder["id"]: template_artist}
+                parties = []
+                for p in draft["parties"]:
+                    pid = swap.get(p["id"], p["id"])
+                    who = self.registry.parties[pid]
+                    parties.append({"id": pid, "name": who["name"], "wallet": who["wallets"][0],
+                                    "role": "artist" if pid == holder["id"] else "co-owner"})
+                if holder["id"] not in {p["id"] for p in draft["parties"]}:
+                    parties = [p for p in parties if p["id"] != template_artist]
+                draft["parties"] = parties
+                draft["shares"] = [{**s, "party_id": swap.get(s["party_id"], s["party_id"])}
+                                   for s in draft["shares"]
+                                   if swap.get(s["party_id"], s["party_id"]) in {p["id"] for p in parties}]
+            out[key] = draft
+        return out
+
+    @staticmethod
+    def _unique_id(base: str, taken: dict[str, Any]) -> str:
+        candidate, n = base, 2
+        while candidate in taken:
+            candidate, n = f"{base}-{n}", n + 1
+        return candidate
 
     # ============================================================ job 1
 

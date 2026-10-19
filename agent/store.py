@@ -86,6 +86,21 @@ CREATE TABLE IF NOT EXISTS flags (
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS synthetic_parties (
+    party_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    wallet TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS synthetic_artworks (
+    artwork_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    rights_holder TEXT NOT NULL,
+    consented_editions INTEGER NOT NULL CHECK (consented_editions > 0),
+    consent_reference TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS flag_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     flag_id TEXT NOT NULL REFERENCES flags(flag_id),
@@ -95,7 +110,8 @@ CREATE TABLE IF NOT EXISTS flag_events (
 );
 """
 
-APPEND_ONLY = ("deal_versions", "approvals", "locks", "sales", "payout_lines", "flag_events")
+APPEND_ONLY = ("deal_versions", "approvals", "locks", "sales", "payout_lines", "flag_events",
+               "synthetic_parties", "synthetic_artworks")  # a consent record never changes
 
 
 def _triggers() -> str:
@@ -141,6 +157,31 @@ class Store:
                 self.conn.execute(f"DROP TABLE IF EXISTS {table}")
             self.conn.execute("PRAGMA foreign_keys = ON")
             self.conn.executescript(SCHEMA + _triggers())
+
+    # --------------------------------------------- synthetic registry
+
+    def add_synthetic_party(self, conn: sqlite3.Connection, party: dict[str, Any], now: int) -> None:
+        conn.execute("INSERT INTO synthetic_parties (party_id, name, kind, wallet, created_at) VALUES (?, ?, ?, ?, ?)",
+                     (party["id"], party["name"], party["kind"], party["wallets"][0], now))
+
+    def add_synthetic_artwork(self, conn: sqlite3.Connection, artwork: dict[str, Any], now: int) -> None:
+        conn.execute(
+            "INSERT INTO synthetic_artworks (artwork_id, title, rights_holder, consented_editions, "
+            "consent_reference, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (artwork["id"], artwork["title"], artwork["rights_holder"], artwork["consented_editions"],
+             artwork["consent_reference"], now))
+
+    def synthetic_parties(self) -> list[dict[str, Any]]:
+        return [{"id": i, "name": n, "kind": k, "wallets": [w], "placeholder": True, "synthetic": True}
+                for i, n, k, w in self.conn.execute(
+                    "SELECT party_id, name, kind, wallet FROM synthetic_parties ORDER BY created_at, rowid")]
+
+    def synthetic_artworks(self) -> list[dict[str, Any]]:
+        return [{"id": i, "title": t, "rights_holder": r, "consented_editions": c, "consent_reference": ref,
+                 "placeholder": True, "synthetic": True}
+                for i, t, r, c, ref in self.conn.execute(
+                    "SELECT artwork_id, title, rights_holder, consented_editions, consent_reference "
+                    "FROM synthetic_artworks ORDER BY created_at, rowid")]
 
     # -------------------------------------------------------------- deals
 
