@@ -1,16 +1,19 @@
-"""OmegaClaw skills for the Edition Deal Agent.
+"""Python side of the Edition Deal Agent plugin for Omega.
 
 Each function calls the Edition Deal Agent's HTTP API and returns a plain
-string for the OmegaClaw agent to read back in chat. The skills can look
-and watch, but never act: none of them approves, locks, records a sale or
-resets anything. Explanations are the agent's own trace-based text, passed
-through unchanged, so the numbers the chat quotes are the numbers paid.
+string for the Omega agent to read back in chat. The skills can look and
+watch, but never act: none of them approves, locks, records a sale or
+resets anything. Explanations are the deal agent's own trace-based text,
+passed through unchanged, so the numbers quoted in chat are the numbers
+that were paid.
+
+The first argument of every skill is the API's base URL. The plugin
+passes Omega's `edaApiBase` setting, because Omega starts its agent with
+a scrubbed environment where ordinary environment variables don't
+arrive. Outside Omega, an empty value falls back to $EDA_API_BASE.
 
 Only the Python standard library is used, so nothing needs installing in
-the OmegaClaw container.
-
-EDA_API_BASE sets where the API is. From inside OmegaClaw's Docker
-container the host machine is usually http://host.docker.internal:8000.
+Omega's container.
 """
 from __future__ import annotations
 
@@ -21,13 +24,24 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-API = os.environ.get("EDA_API_BASE", "http://host.docker.internal:8000").rstrip("/")
+DEFAULT_API = "http://host.docker.internal:8000"
 TIMEOUT = 30
 
 
-def _call(method: str, path: str, body: Any = None) -> Any:
+class SkillError(Exception):
+    def __init__(self, message: str, detail: dict) -> None:
+        super().__init__(message)
+        self.detail = detail
+
+
+def _base(api: Any) -> str:
+    text = str(api or "").strip().strip('"')
+    return (text or os.environ.get("EDA_API_BASE") or DEFAULT_API).rstrip("/")
+
+
+def _call(api: str, method: str, path: str, body: Any = None) -> Any:
     data = None if body is None else json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(API + path, data=data, method=method,
+    req = urllib.request.Request(api + path, data=data, method=method,
                                  headers={"Content-Type": "application/json"} if data else {})
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as res:
@@ -39,19 +53,14 @@ def _call(method: str, path: str, body: Any = None) -> Any:
             detail = {"message": str(err)}
         raise SkillError(detail.get("message", str(err)), detail) from None
     except urllib.error.URLError as err:
-        raise SkillError(f"The Edition Deal Agent isn't reachable at {API} ({err.reason}).", {}) from None
-
-
-class SkillError(Exception):
-    def __init__(self, message: str, detail: dict) -> None:
-        super().__init__(message)
-        self.detail = detail
+        raise SkillError(f"The Edition Deal Agent isn't reachable at {api} ({err.reason}).", {}) from None
 
 
 def _safe(fn):
-    def wrapped(*args):
+    """Return errors as text the agent can relay, instead of raising into the loop."""
+    def wrapped(api: Any = "", *args: Any) -> str:
         try:
-            return fn(*[str(a).strip().strip('"') for a in args])
+            return fn(_base(api), *[str(a).strip().strip('"') for a in args])
         except SkillError as err:
             report = err.detail.get("report") or {}
             reasons = "; ".join(f"{e['detail']} [{e['rule']}]" for e in report.get("errors", []))
@@ -62,23 +71,24 @@ def _safe(fn):
 
 
 @_safe
-def deal_status() -> str:
+def deal_status(api: str) -> str:
     """Every deal, its newest version and the version in force."""
-    deals = _call("GET", "/deals")
+    deals = _call(api, "GET", "/deals")
     if not deals:
         return "There are no deals yet."
     lines = []
     for d in deals:
-        active = f"version {d['active_version']} is locked and in force" if d["active_version"] else "nothing locked yet"
+        active = (f"version {d['active_version']} is locked and in force" if d["active_version"]
+                  else "nothing locked yet")
         lines.append(f"{d['deal_id']} for {d['artwork_title'] or d['artwork_id']}: "
                      f"newest version {d['latest_version']}, {active}.")
     return "\n".join(lines)
 
 
 @_safe
-def recent_sales(limit: str = "5") -> str:
+def recent_sales(api: str, limit: str = "5") -> str:
     """The latest sales in the ledger, with who was paid what."""
-    sales = _call("GET", "/sales")[-int(limit or 5):]
+    sales = _call(api, "GET", "/sales")[-int(limit or 5):]
     if not sales:
         return "No sales have been paid out yet."
     out = []
@@ -90,50 +100,52 @@ def recent_sales(limit: str = "5") -> str:
 
 
 @_safe
-def explain_payout(sale_id: str, party: str = "") -> str:
+def explain_payout(api: str, sale_id: str, party: str = "") -> str:
     """Why did <party> get <amount> for <sale>? Party is an ID (e.g. artist-a) or a wallet."""
     query = f"?party={urllib.parse.quote(party)}" if party else ""
-    answer = _call("GET", f"/sales/{urllib.parse.quote(sale_id)}/explain{query}")
+    answer = _call(api, "GET", f"/sales/{urllib.parse.quote(sale_id)}/explain{query}")
     return answer["explanation"]
 
 
 @_safe
-def scan_royalties() -> str:
+def scan_royalties(api: str) -> str:
     """Run the watch: classify every transfer on the chain and report what needs a look."""
-    rows = _call("POST", "/watch/scan")
+    rows = _call(api, "POST", "/watch/scan")
     if not rows:
         return "Nothing is on the chain yet."
     counts: dict[str, int] = {}
     for r in rows:
         counts[r["classification"]] = counts.get(r["classification"], 0) + 1
     summary = ", ".join(f"{n} {c}" for c, n in counts.items())
-    flagged = [r for r in rows if r["status"] == "OPEN"]
     lines = [f"Scanned {len(rows)} transfers: {summary}."]
-    for r in flagged:
+    for r in rows:
+        if r["status"] != "OPEN":
+            continue
         owed = f" {r['total_owed_display']} is owed." if r.get("total_owed_display") else " No royalty is claimed."
-        lines.append(f"Open: {r['tx']} (edition {r['edition']}) is {r['classification']} because {r['statement'].lower()}{owed}")
+        lines.append(f"Open: {r['tx']} (edition {r['edition']}) is {r['classification']}: "
+                     f"{r['statement']}{owed}")
     return "\n".join(lines)
 
 
 @_safe
-def open_flags() -> str:
-    """The open flags, each with the agent's own explanation."""
-    flags = _call("GET", "/flags?status=OPEN")
+def open_flags(api: str) -> str:
+    """The open flags, each with the deal agent's own explanation."""
+    flags = _call(api, "GET", "/flags?status=OPEN")
     if not flags:
         return "There are no open flags."
     return "\n\n".join(f"{f['flag_id']} [{f['classification']}]: {f['explanation']}" for f in flags)
 
 
 @_safe
-def check_deal(deal_json: str) -> str:
+def check_deal(api: str, deal_json: str) -> str:
     """Check a draft deal (JSON in the deal builder's shape) without saving anything."""
     try:
         draft = json.loads(deal_json)
     except ValueError:
         return "That isn't valid JSON for a deal."
-    report = _call("POST", "/deals/check", draft)
+    report = _call(api, "POST", "/deals/check", draft)
     if report["valid"]:
         warnings = "; ".join(f"{w['detail']} [{w['rule']}]" for w in report["warnings"])
-        text = " ".join(report["summary"]["text"])
-        return f"Every rule holds. {text}" + (f" Warnings: {warnings}" if warnings else "")
+        return f"Every rule holds. {' '.join(report['summary']['text'])}" + (
+            f" Warnings: {warnings}" if warnings else "")
     return "The deal breaks these rules: " + "; ".join(f"{e['detail']} [{e['rule']}]" for e in report["errors"])

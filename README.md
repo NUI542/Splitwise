@@ -71,7 +71,7 @@ React app (4 screens) ──HTTP──► FastAPI (api/) ──► service layer
                                                     ├─ SQLite: versions, approvals, locks,
                                                     │    append-only ledger, flags
                                                     └─ ChainAdapter ◄── simulator (later: a real chain)
-OmegaClaw (chat) ──read-only skills──► FastAPI
+Omega agent (chat) ──read-only skills──► FastAPI
 ```
 
 | Layer | Holds | Doesn't hold |
@@ -121,7 +121,7 @@ Agreed while planning:
 - **Where events come from:** sales on BASIX.MARKET go through the agent and are then settled on the simulated chain. A resale elsewhere, or a gift, is written only to the chain, and the watch finds it.
 - **Partial royalty** counts as `SALE_ROYALTY_MISSING`, with only the shortfall owed.
 - **Price ceiling:** KES 10 billion. MeTTa's integers are 64-bit and wrap silently, so the ceiling keeps every calculation exact.
-- **OmegaClaw is read-only:** it can explain, list and run the watch, never approve, lock or sell (see [omega/README.md](omega/README.md)).
+- **Omega's skills are read-only:** the Omega plugin's skills explain, list, check and run the watch; none approves, locks or sells. In this demo that isn't enforced at the network level yet (see [omega/README.md](omega/README.md)).
 
 ## Setup
 
@@ -157,7 +157,7 @@ Settings (optional; copy `.env.example` to `.env` or set them in the shell):
 |---|---|---|
 | `EDA_DB_PATH` | `var/edition_deals.db` | the API |
 | `VITE_API_BASE` | `http://127.0.0.1:8000` | the Vite dev server's proxy |
-| `EDA_API_BASE` | `http://host.docker.internal:8000` | the OmegaClaw skills |
+| `edaApiBase` (an Omega setting, not an environment variable) | `http://host.docker.internal:8000` | the Omega plugin |
 
 ## The demo run
 
@@ -171,7 +171,7 @@ This is the 3-minute video, entirely in the app:
 6. **Resale without royalty**, then **Gift transfer**: these happen off BASIX.MARKET, so they appear on the chain but not in the ledger.
 7. **Watch → Scan the chain.** Four transfers, four classes. The unpaid resale is flagged with what each co-owner is owed; the gift is flagged as unverified, with no royalty claimed.
 8. **Sales → click a payout line** on the resale. **Explain** answers *"Why did Print Studio D get KES … for sale …?"* step by step, with the trace beside it.
-9. **What's next:** a real chain adapter, signed approvals, and OmegaClaw in chat.
+9. **What's next:** a real chain adapter, signed approvals, and the Omega agent in chat.
 
 Footer controls: **Seed a locked sample deal** skips steps 1–4; **Reset everything** wipes the demo.
 
@@ -223,7 +223,7 @@ rules/    MeTTa: deal facts schema and rule catalogue, checks, payout, classific
 agent/    Python service layer, chain adapter and simulator, storage, explanations
 api/      FastAPI app
 web/      React app (Deal, Sales, Explain, Watch)
-omega/    OmegaClaw skills (read-only)
+omega/    Omega plugin (read-only skills) and its installer
 data/     placeholder registry, agreement, sample deals, golden scenarios
 tests/    pytest + Hypothesis
 ```
@@ -236,7 +236,7 @@ The hackathon starter files (`BRIEF.md`, `SUBMISSION.md`, `tracks/`,
 - **The chain is simulated.** Next: a Cardano or EVM adapter implementing `read_transfers` and `read_payments`.
 - **Approvals are clicks, not signatures.** Anyone using the app can approve as anyone. Next: each co-owner signs in, or signs with their wallet.
 - **Speed.** The hyperon interpreter takes about a second for a full deal check. That's fine for the demo; at scale the rules would need caching or a faster runtime.
-- **OmegaClaw** skills are written and tested against the API, but not yet run inside OmegaClaw.
+- **Omega:** the plugin loads in Omega v0.1.20 and every skill works through it, but it hasn't been tried in a live Telegram chat yet. Its read-only promise isn't enforced: Omega's own `shell` skill could reach the unauthenticated write endpoints. Next: an operator token on those endpoints.
 - **One currency** is configured (KES). Others are a one-line addition, within the 64-bit limit.
 - **A royalty paid later**, in a separate transaction, isn't matched automatically; a person resolves the flag with a reason.
 
