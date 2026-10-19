@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, FastAPI, Request
+from fastapi import Body, FastAPI, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -22,6 +22,7 @@ from agent.money import format_minor
 from agent.registry import Registry
 from agent.service import DealService, ServiceError
 from agent.store import Store
+from api.omega_bridge import ChatRefused, OmegaBridge
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB_DIST = ROOT / "web" / "dist"
@@ -74,6 +75,10 @@ class FlagUpdate(BaseModel):
     reason: str = ""
 
 
+class ChatMessage(BaseModel):
+    text: Any = None
+
+
 class NewArtwork(BaseModel):
     title: Any = None
     consented_editions: Any = None
@@ -81,13 +86,28 @@ class NewArtwork(BaseModel):
     new_artist_name: Any = None  # the name of a new placeholder artist
 
 
+def load_env_file(path: Path = ROOT / ".env") -> None:
+    """Read KEY=VALUE lines from .env into the environment (without overriding what's already set)."""
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
 def default_service() -> DealService:
     db_path = os.environ.get("EDA_DB_PATH", str(ROOT / "var" / "edition_deals.db"))
     return DealService(Store(db_path), Engine(), Registry.load())
 
 
-def create_app(service: DealService | None = None) -> FastAPI:
+def create_app(service: DealService | None = None, omega_token: str | None = None) -> FastAPI:
+    load_env_file()
     svc = service or default_service()
+    bridge = OmegaBridge(svc.store, omega_token if omega_token is not None
+                         else os.environ.get("EDA_OMEGA_WS_TOKEN"), clock=svc.clock)
     app = FastAPI(
         title="Edition Deal Agent",
         description="Checks, pays out and watches edition deals for BASIX.MARKET. "
@@ -95,6 +115,7 @@ def create_app(service: DealService | None = None) -> FastAPI:
         version="0.1.0",
     )
     app.state.service = svc
+    app.state.bridge = bridge
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -105,6 +126,10 @@ def create_app(service: DealService | None = None) -> FastAPI:
     @app.exception_handler(ServiceError)
     async def service_error(_: Request, exc: ServiceError) -> JSONResponse:
         return JSONResponse(status_code=exc.status, content=exc.to_dict())
+
+    @app.exception_handler(ChatRefused)
+    async def chat_refused(_: Request, exc: ChatRefused) -> JSONResponse:
+        return JSONResponse(status_code=422, content={"error": exc.code, "message": exc.message})
 
     @app.exception_handler(EngineError)
     async def engine_error(_: Request, exc: EngineError) -> JSONResponse:
@@ -190,6 +215,25 @@ def create_app(service: DealService | None = None) -> FastAPI:
     @app.patch("/flags/{flag_id}")
     def update_flag(flag_id: str, body: FlagUpdate) -> dict[str, Any]:
         return svc.update_flag(flag_id, body.status, body.reason)
+
+    # ---------------------------------------- "Ask the agent" (Omega)
+
+    @app.websocket("/omega/ws")
+    async def omega_socket(ws: WebSocket) -> None:
+        """Omega's websocket channel connects here (commchannel=websocket, WS_URL, WS_TOKEN)."""
+        await bridge.serve(ws)
+
+    @app.get("/assistant/status")
+    def assistant_status() -> dict[str, Any]:
+        return bridge.status()
+
+    @app.get("/assistant/messages")
+    def assistant_messages(after: int = 0) -> dict[str, Any]:
+        return {"messages": bridge.messages(after), "status": bridge.status()}
+
+    @app.post("/assistant/messages")
+    async def assistant_post(body: ChatMessage) -> dict[str, Any]:
+        return {"message": await bridge.post(body.text), "status": bridge.status()}
 
     # ------------------------------------------------------ simulator
 

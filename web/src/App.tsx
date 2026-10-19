@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { AssistantPanel } from "./AssistantPanel";
 import { api } from "./api";
 import { Notice } from "./components";
 import { DealBuilder } from "./screens/DealBuilder";
@@ -93,6 +94,8 @@ export function App() {
           </>
         )}
       </main>
+
+      <AssistantPanel />
 
       <footer className="footer">
         <span>Demo controls:</span>

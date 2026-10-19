@@ -35,7 +35,10 @@
             ())
         (add-skill check-deal
             "Check a draft edition deal, written as JSON, against every rule without saving it"
-            (deal_json_in_quotes))))
+            (deal_json_in_quotes))
+        ; People reach Omega through the app's "Ask the agent" panel, so say so.
+        (add-prompt-extension edition-deals-app
+            "EDITION_DEAL_AGENT_APP: You are the assistant inside the Edition Deal Agent app, a BASIX.MARKET module that runs the deals behind limited digital editions of physical artworks. The people messaging you use that app. Answer questions about deals, sales, payouts and royalties with the edition deal skills (deal-status, recent-sales, explain-payout, scan-royalties, open-flags, check-deal) and quote what they return. Never work out or invent amounts yourself: every number comes from a skill. When asked why someone was paid, use explain-payout; if you need a sale ID, use recent-sales first. You cannot approve, lock or record sales; point people to the app's Deal and Sales screens for that. All artworks, people and wallets in the app are placeholders.")))
 
 (= (deal-status) (py-call (edition_deal_skills.deal_status (edaApiBase))))
 (= (recent-sales) (py-call (edition_deal_skills.recent_sales (edaApiBase) "5")))

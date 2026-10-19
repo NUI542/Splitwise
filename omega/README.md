@@ -1,8 +1,28 @@
-# Omega plugin
+# Omega in the app
 
-`edition_deals/` is a plugin for **Omega v0.1.20** (`singularitynet/omega`)
-that lets the Omega agent talk about edition deals in chat: what's in
-force, who was paid what and why, and which resales skipped the royalty.
+People only use the React app. Its **Ask the agent** panel is a chat with
+**Omega v0.1.20** (`singularitynet/omega`), which answers using the deal
+agent's own skills:
+
+```
+React app ──► deal agent API ◄──websocket── Omega ──► OpenAI (reads the question, picks a skill)
+ "Ask the agent"   /assistant/*      /omega/ws       │
+                                                     └──skills──► deal agent API (the answers)
+```
+
+Omega connects *out* to the deal agent through its built-in `websocket`
+chat channel (`channels/wschat.py` in Omega). The deal agent is the chat
+server, so there's no Telegram and no separate chat account. Omega logs in
+with a bearer token, `EDA_OMEGA_WS_TOKEN`, kept in `.env`.
+
+## The plugin
+
+`edition_deals/` is an Omega plugin (Omega's `docs/reference-plugin-api.md`).
+`edition_deals.metta` has a `loadOmegaPlugin` entry point that registers
+six skills with `add-skill`. It also adds a prompt section telling Omega it's
+the assistant inside this app and that every amount must come from a skill.
+Each skill `py-call`s `edition_deal_skills.py`, which calls the deal agent's
+HTTP API using only the standard library.
 
 | Skill | What it does |
 |---|---|
@@ -13,87 +33,88 @@ force, who was paid what and why, and which resales skipped the royalty.
 | `(open-flags)` | Open flags, each with its evidence |
 | `(check-deal "{...json...}")` | Checks a draft deal against every rule without saving it |
 
-It uses Omega's plugin API (`docs/reference-plugin-api.md` in the Omega
-repo): `edition_deals.metta` has a `loadOmegaPlugin` entry point that
-registers the skills with `add-skill`, and each skill `py-call`s
-`edition_deal_skills.py`, which calls the deal agent's HTTP API. The Python
-side uses only the standard library.
+The plugin reads the API's address from Omega's `edaApiBase` setting
+(default `http://host.docker.internal:8000`). It can't use an environment
+variable, because Omega starts its agent with a scrubbed environment.
 
-## Wiring it up
+## Switching your Omega container to the app
 
-You need the deal agent's API running on this machine (main README,
-**Setup**). Then, in the Ubuntu (WSL) terminal, where `docker` works:
+1. Start the deal agent's API on this machine (main README, **Setup**).
+   It reads `EDA_OMEGA_WS_TOKEN` from `.env`.
+2. In the Ubuntu (WSL) terminal, where `docker` works:
 
-```bash
-cd /mnt/c/Users/Admin/Documents/SOTA-OCT-26
-bash omega/install.sh              # container name defaults to "omega"
-docker restart omega
-docker logs -f omega | grep -E "edition|plugin"
-```
+   ```bash
+   cd /mnt/c/Users/Admin/Documents/SOTA-OCT-26
+   bash omega/use_web_chat.sh
+   ```
 
-The log should show `Edition Deal Agent API: http://host.docker.internal:8000`
-and `Plugin edition_deals is loaded`. Then ask the bot on Telegram, for
-example: *"Why did Print Studio D get paid for sale evt-deal-1-0002?"*
+   The script:
+   - reads the token from `.env`, creating one if it's missing;
+   - copies your `omega` container's image, Omega options, memory volume,
+     run options and environment (API keys go to a private temp file, are
+     never printed, and are deleted afterwards);
+   - writes `var/omega/plugins.yaml` (Omega's own list plus `edition_deals`);
+   - stops your `omega` container and keeps it as `omega-telegram-backup`;
+   - starts a new `omega` with `commchannel=websocket`, `WS_URL`, `WS_TOKEN`
+     and the plugin mounted read-only from this repo.
+3. Open the app. The **Ask the agent** button's dot turns green once Omega
+   connects, and Omega posts its version in the chat. To follow it in the
+   log instead:
 
-### Where the API is
+   ```bash
+   docker logs -f omega 2>&1 | grep -E "edition|plugin|websocket|Connected"
+   ```
 
-The plugin reads Omega's `edaApiBase` setting, defaulting to
-`http://host.docker.internal:8000`. Omega's container already maps
-`host.docker.internal` to this machine, and the deal agent's API can stay
-bound to `127.0.0.1`. To point elsewhere, set `edaApiBase` the Omega way:
-as `edaApiBase=http://...` on Omega's command line, or in
-`config/config.yaml`.
+   You should see `Plugin edition_deals is loaded`.
 
-An environment variable won't work: Omega starts its agent with a scrubbed
-environment. That's why the address is passed from MeTTa into every
-Python call.
+Because the plugin is mounted from this repo, a change to it only needs
+`docker restart omega`.
 
-### Keeping it across container rebuilds
-
-`install.sh` copies files into the existing container. If you recreate the
-container (for example by re-running Omega's setup script), run it again,
-or mount the plugin instead by adding these to your `docker run` command:
+**Undo** (back to Telegram):
 
 ```bash
--v /mnt/c/Users/Admin/Documents/SOTA-OCT-26/omega/edition_deals:/PeTTa/repos/Omega/plugins/edition_deals:ro
--v /path/to/your/plugins.yaml:/PeTTa/repos/Omega/config/plugins.yaml:ro
+docker rm -f omega && docker rename omega-telegram-backup omega && docker start omega
 ```
 
-where your `plugins.yaml` is Omega's own plus:
+## Behaviour
 
-```yaml
-- name: edition_deals
-  loader: metta
-  location: "{REPO}/plugins/edition_deals"
-```
-
-### Removing it
-
-Delete the `edition_deals` entry from `config/plugins.yaml` in the
-container and restart it.
+- Messages typed while Omega is offline wait in the deal agent and are
+  delivered when it connects. A freshly started Omega isn't re-sent old
+  questions.
+- The app refuses messages starting with `/`, which Omega's channels treat
+  as operator commands (for example `/memory-export`).
+- Everyone using the app shares one conversation with Omega.
 
 ## What it can and can't do
 
-The six skills only read, check and run the watch. None of them approves,
-locks, records a sale or resets anything, and the explanations they relay
-are the deal agent's own trace-based text, so the numbers quoted in chat
-are the numbers paid.
+The six skills only read, check and run the watch: none of them approves,
+locks, records a sale or resets anything. The explanations they relay are
+the deal agent's trace-based text, so the numbers quoted in the chat are
+the numbers paid.
 
-**Not enforced yet:** Omega also has general skills, such as `shell`, that
-plugins can't remove. In this demo the deal agent's write endpoints
-(approve, lock, sales, `/sim/*`) have no authentication, so a shell
-command inside Omega's container could still call them. Closing that means
-requiring an operator token on those endpoints, kept out of Omega's
-container.
+**Not enforced yet:** Omega also has general skills that plugins can't
+remove, such as `shell` and file access, and anyone using the app can ask
+Omega anything. In this demo the deal agent's write endpoints (approve,
+lock, sales, `/sim/*`) have no authentication, so Omega could still reach
+them through `shell`. Keep the app on this machine (it binds to
+`127.0.0.1`). The next step is an operator token on those endpoints, kept
+out of Omega's container.
 
 ## What has been tested
 
-- The plugin was loaded by Omega v0.1.20's own plugin loader, from the
-  `singularitynet/omega:v0.1.20` image in a throwaway container. All six
-  skills appeared in the skill list Omega gives its LLM.
-- Each skill was called through `py-call` against the running API and
-  returned the expected text, including the error for an unknown sale.
-- The address `host.docker.internal:8000` reaches the API from the
-  container.
-- Not yet tested: a live Telegram conversation, where the LLM chooses the
-  skill itself.
+- The plugin was loaded by Omega v0.1.20's own loader in a throwaway
+  container from your image. The six skills and the prompt section
+  registered, and each skill answered from the running API.
+- Omega's real `wschat.py` adapter, run from your image, connected to
+  `/omega/ws` with the token and was refused (HTTP 403) with a wrong one. It
+  received a question that was waiting from before it connected, and its
+  reply reached the app.
+- `use_web_chat.sh` was run on a stand-in container shaped like yours, with
+  a fake OpenAI key. The new container kept the image, options, volume and
+  environment. Omega started, connected by itself, and posted
+  `Omega version=v0.1.20` to the chat.
+- The **Ask the agent** panel was driven in a browser against a stand-in
+  that answered with the plugin's skills.
+- `tests/test_assistant.py` plays Omega's side of the protocol.
+- **Not yet tested:** your real Omega answering in the app, where gpt-5.5
+  picks the skill itself.

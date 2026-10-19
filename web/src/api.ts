@@ -1,6 +1,6 @@
 import type {
-  CheckReport, DealListItem, Draft, Explanation, Flag, FlagStatus, Registry, RegistryArtwork, RegistryParty,
-  Report, Sale, SimResult, VersionView, WatchRow,
+  AssistantStatus, ChatMessage, CheckReport, DealListItem, Draft, Explanation, Flag, FlagStatus, Registry,
+  RegistryArtwork, RegistryParty, Report, Sale, SimResult, VersionView, WatchRow,
 } from "./types";
 
 export class ApiError extends Error {
@@ -54,6 +54,11 @@ export const api = {
   sim: (scenario: string, params: Record<string, unknown> = {}) =>
     request<SimResult>("POST", `/sim/${scenario}`, params),
   chain: (dealId: string) => request<ChainView>("GET", `/chain/transfers?deal_id=${dealId}`),
+  /** "Ask the agent": messages after `after`, and whether Omega is connected. */
+  chat: (after = 0) =>
+    request<{ messages: ChatMessage[]; status: AssistantStatus }>("GET", `/assistant/messages?after=${after}`),
+  ask: (text: string) =>
+    request<{ message: ChatMessage; status: AssistantStatus }>("POST", "/assistant/messages", { text }),
 };
 
 export interface ChainView {

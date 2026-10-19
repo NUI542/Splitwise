@@ -62,16 +62,31 @@ and payment on the (simulated) chain and classifies each transfer:
 Anything that isn't paid or a primary sale becomes a flag, with its
 evidence. A person resolves or dismisses it, with a reason that's kept.
 
+**Ask the agent.** Every screen has a chat with **Omega**, SingularityNET's
+agent. It reads the question with a language model and answers with the
+deal agent's own skills (deal status, sales, "why was this paid", the
+watch), so every amount it quotes comes from the rules. See
+[omega/README.md](omega/README.md).
+
+For repeat demos, the Deal screen can add a **synthetic artwork**, always
+tagged `[PLACEHOLDER]`, with a new placeholder artist or an existing
+co-owner as rights holder. The **Load broken example** and **Load valid
+example** buttons write their deals for whichever artwork is chosen.
+
 ## How it works
 
 ```
-React app (4 screens) ──HTTP──► FastAPI (api/) ──► service layer (agent/)
-                                                    ├─ MeTTa rules (rules/*.metta) on hyperon
-                                                    │    checks · payout split · classification → traces
-                                                    ├─ SQLite: versions, approvals, locks,
-                                                    │    append-only ledger, flags
-                                                    └─ ChainAdapter ◄── simulator (later: a real chain)
-Omega agent (chat) ──read-only skills──► FastAPI
+React app ─────────HTTP──────► FastAPI (api/) ──► service layer (agent/)
+ 4 screens + "Ask the agent"         │                ├─ MeTTa rules (rules/*.metta) on hyperon
+                                     │                │    checks · payout split · classification → traces
+                                     │                ├─ SQLite: versions, approvals, locks,
+                                     │                │    append-only ledger, flags, chat
+                                     │                └─ ChainAdapter ◄── simulator (later: a real chain)
+                                     │
+             /omega/ws (chat) ◄──────┴──────► read-only skills (HTTP)
+                    ▲                                 ▲
+                    └───────── Omega (Docker) ────────┘
+                     websocket channel + edition_deals plugin
 ```
 
 | Layer | Holds | Doesn't hold |
@@ -121,7 +136,9 @@ Agreed while planning:
 - **Where events come from:** sales on BASIX.MARKET go through the agent and are then settled on the simulated chain. A resale elsewhere, or a gift, is written only to the chain, and the watch finds it.
 - **Partial royalty** counts as `SALE_ROYALTY_MISSING`, with only the shortfall owed.
 - **Price ceiling:** KES 10 billion. MeTTa's integers are 64-bit and wrap silently, so the ceiling keeps every calculation exact.
-- **Omega's skills are read-only:** the Omega plugin's skills explain, list, check and run the watch; none approves, locks or sells. In this demo that isn't enforced at the network level yet (see [omega/README.md](omega/README.md)).
+- **Omega lives inside the app:** people reach it only through the **Ask the agent** panel, over Omega's own websocket chat channel. Telegram isn't used.
+- **Omega's skills are read-only:** the plugin's skills explain, list, check and run the watch; none approves, locks or sells. In this demo that isn't enforced at the network level yet (see [omega/README.md](omega/README.md)).
+- **Synthetic artworks** added in the app are always tagged `[PLACEHOLDER]`, come with a placeholder consent record, can't be edited afterwards, and are removed by **Reset everything**.
 
 ## Setup
 
@@ -156,14 +173,18 @@ Settings (optional; copy `.env.example` to `.env` or set them in the shell):
 | Variable | Default | Used by |
 |---|---|---|
 | `EDA_DB_PATH` | `var/edition_deals.db` | the API |
+| `EDA_OMEGA_WS_TOKEN` | none: Omega can't connect without it | the API's `/omega/ws`, and Omega (set by `omega/use_web_chat.sh`) |
 | `VITE_API_BASE` | `http://127.0.0.1:8000` | the Vite dev server's proxy |
 | `edaApiBase` (an Omega setting, not an environment variable) | `http://host.docker.internal:8000` | the Omega plugin |
+
+To connect Omega, follow [omega/README.md](omega/README.md): one script
+moves your Omega container onto the app's chat.
 
 ## The demo run
 
 This is the 3-minute video, entirely in the app:
 
-1. **Deal → Load broken sample.** The agent flags *"The shares add up to 110.00%, not 100.00%"* (`shares-not-100`) and warns about the 12% royalty (`royalty-above-10`).
+1. **Deal → Load broken example.** The agent flags *"The shares add up to 110.00%, not 100.00%"* (`shares-not-100`) and warns about the 12% royalty (`royalty-above-10`).
 2. **Fix** the artist's share to 60. The check turns valid (one warning) and the plain-language summary appears. **Save deal for approval.**
 3. **Approve** as three of the four co-owners, then **Lock**. The agent refuses: *"Print Studio D hasn't approved version 1"* (`approval-missing`).
 4. Approve as the last co-owner and **Lock**. Version 1 is active.
@@ -171,9 +192,12 @@ This is the 3-minute video, entirely in the app:
 6. **Resale without royalty**, then **Gift transfer**: these happen off BASIX.MARKET, so they appear on the chain but not in the ledger.
 7. **Watch → Scan the chain.** Four transfers, four classes. The unpaid resale is flagged with what each co-owner is owed; the gift is flagged as unverified, with no royalty claimed.
 8. **Sales → click a payout line** on the resale. **Explain** answers *"Why did Print Studio D get KES … for sale …?"* step by step, with the trace beside it.
-9. **What's next:** a real chain adapter, signed approvals, and the Omega agent in chat.
+9. **Ask the agent:** *"Were any resales made without paying the royalty?"* Omega runs the watch through its skill and answers with the agent's findings.
+10. **What's next:** a real chain adapter and signed approvals.
 
-Footer controls: **Seed a locked sample deal** skips steps 1–4; **Reset everything** wipes the demo.
+To run it again without resetting, choose **+ Add a synthetic artwork…** on the Deal screen and start from step 1 on the new artwork.
+
+Footer controls: **Seed a locked sample deal** skips steps 1–4; **Reset everything** wipes the demo, including synthetic artworks and the chat.
 
 ## Tests
 
@@ -182,7 +206,7 @@ Footer controls: **Seed a locked sample deal** skips steps 1–4; **Reset everyt
 .venv/bin/python -m pytest          # macOS / Linux
 ```
 
-The suite takes about 2.5 minutes, because each MeTTa query takes
+The suite takes a few minutes, because each MeTTa query takes
 0.3–2 seconds. It covers:
 
 - every contradiction rule (`tests/test_validation.py`)
@@ -191,6 +215,8 @@ The suite takes about 2.5 minutes, because each MeTTa query takes
 - the watch and flags (`tests/test_watch.py`)
 - Hypothesis property tests: exact sums, leftover to the artist, no double payment on replay, locked deals unchanged (`tests/test_properties.py`)
 - the whole demo run over HTTP (`tests/test_api.py`)
+- synthetic artworks and the examples written for them (`tests/test_artworks.py`)
+- the chat with Omega, playing Omega's side of its websocket protocol (`tests/test_assistant.py`)
 
 **Golden scenarios.** `data/golden_scenarios.csv` has nine scenarios
 whose answers are worked out **by hand** (see [data/README.md](data/README.md)).
@@ -212,7 +238,11 @@ the cent. Until the answers are in, those rows are reported as skipped
 | POST | `/watch/scan` | Classify every transfer; raise flags |
 | GET / PATCH | `/flags` · `/flags/{id}` | List flags; resolve, dismiss or reopen with a reason |
 | POST | `/sim/{scenario}` | `primary-sale`, `resale-with-royalty`, `resale-without-royalty`, `resale-partial-royalty`, `gift-transfer`, `seed-locked-deal`, `reset` |
-| GET | `/rules` · `/registry` · `/samples` · `/chain/transfers` | The rule catalogue, placeholder registry, sample deals, raw chain records |
+| POST | `/artworks` | Add a synthetic `[PLACEHOLDER]` artwork: `{title, consented_editions, rights_holder` or `new_artist_name}` |
+| GET | `/samples?artwork_id=` | The valid and broken example deals, written for that artwork |
+| GET / POST | `/assistant/messages` · `/assistant/status` | The **Ask the agent** chat, and whether Omega is connected |
+| WebSocket | `/omega/ws` | Where Omega's websocket channel connects (bearer `EDA_OMEGA_WS_TOKEN`) |
+| GET | `/rules` · `/registry` · `/chain/transfers` | The rule catalogue, the registry (with synthetic artworks), raw chain records |
 
 Errors are JSON: `{error: "<code>", message, report?}`, where `report` lists the rules that refused the request.
 
@@ -221,9 +251,9 @@ Errors are JSON: `{error: "<code>", message, report?}`, where `report` lists the
 ```
 rules/    MeTTa: deal facts schema and rule catalogue, checks, payout, classification
 agent/    Python service layer, chain adapter and simulator, storage, explanations
-api/      FastAPI app
-web/      React app (Deal, Sales, Explain, Watch)
-omega/    Omega plugin (read-only skills) and its installer
+api/      FastAPI app, and the server end of Omega's chat channel
+web/      React app (Deal, Sales, Explain, Watch, Ask the agent)
+omega/    Omega plugin (read-only skills) and the script that moves Omega onto the app's chat
 data/     placeholder registry, agreement, sample deals, golden scenarios
 tests/    pytest + Hypothesis
 ```
@@ -236,7 +266,8 @@ The hackathon starter files (`BRIEF.md`, `SUBMISSION.md`, `tracks/`,
 - **The chain is simulated.** Next: a Cardano or EVM adapter implementing `read_transfers` and `read_payments`.
 - **Approvals are clicks, not signatures.** Anyone using the app can approve as anyone. Next: each co-owner signs in, or signs with their wallet.
 - **Speed.** The hyperon interpreter takes about a second for a full deal check. That's fine for the demo; at scale the rules would need caching or a faster runtime.
-- **Omega:** the plugin loads in Omega v0.1.20 and every skill works through it, but it hasn't been tried in a live Telegram chat yet. Its read-only promise isn't enforced: Omega's own `shell` skill could reach the unauthenticated write endpoints. Next: an operator token on those endpoints.
+- **Omega:** the plugin, the chat channel and the switch script are tested against Omega v0.1.20, but not yet with your real Omega answering (gpt-5.5 picking the skills). Its read-only promise isn't enforced: anyone using the app can ask Omega anything, and Omega's own `shell` skill could reach the unauthenticated write endpoints. Keep the app on this machine. Next: an operator token on those endpoints.
+- **One shared chat:** everyone using the app shares one conversation with Omega.
 - **One currency** is configured (KES). Others are a one-line addition, within the 64-bit limit.
 - **A royalty paid later**, in a separate transaction, isn't matched automatically; a person resolves the flag with a reason.
 

@@ -101,6 +101,14 @@ CREATE TABLE IF NOT EXISTS synthetic_artworks (
     consent_reference TEXT NOT NULL,
     created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS assistant_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    role TEXT NOT NULL CHECK (role IN ('user', 'agent')),
+    text TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    client_seq TEXT UNIQUE,
+    delivered_at INTEGER
+);
 CREATE TABLE IF NOT EXISTS flag_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     flag_id TEXT NOT NULL REFERENCES flags(flag_id),
@@ -182,6 +190,45 @@ class Store:
                 for i, t, r, c, ref in self.conn.execute(
                     "SELECT artwork_id, title, rights_holder, consented_editions, consent_reference "
                     "FROM synthetic_artworks ORDER BY created_at, rowid")]
+
+    # ------------------------------------------- "Ask the agent" chat
+
+    def add_assistant_message(self, role: str, text: str, now: int,
+                              client_seq: str | None = None) -> tuple[dict[str, Any], bool]:
+        """Store a chat message; returns (message, created). A repeated client_seq isn't stored twice."""
+        with self.transaction() as conn:
+            if client_seq:
+                row = conn.execute(f"SELECT {_CHAT_COLS} FROM assistant_messages WHERE client_seq = ?",
+                                   (client_seq,)).fetchone()
+                if row:
+                    return _chat_row(row), False
+            cur = conn.execute("INSERT INTO assistant_messages (role, text, at, client_seq) VALUES (?, ?, ?, ?)",
+                               (role, text, now, client_seq))
+            row = conn.execute(f"SELECT {_CHAT_COLS} FROM assistant_messages WHERE id = ?",
+                               (cur.lastrowid,)).fetchone()
+        return _chat_row(row), True
+
+    def assistant_messages(self, after: int = 0, limit: int = 200) -> list[dict[str, Any]]:
+        rows = self.conn.execute(
+            f"SELECT {_CHAT_COLS} FROM assistant_messages WHERE id > ? ORDER BY id LIMIT ?", (after, limit)
+        ).fetchall()
+        return [_chat_row(r) for r in rows]
+
+    def user_messages_to_replay(self, last_seen_seq: int | None) -> list[dict[str, Any]]:
+        """What to send Omega on (re)connect. With no last_seen_seq (a fresh Omega
+        process), only messages never delivered, so old questions aren't re-asked."""
+        if last_seen_seq is None:
+            query, args = "role = 'user' AND delivered_at IS NULL", ()
+        else:
+            query, args = "role = 'user' AND id > ?", (int(last_seen_seq),)
+        rows = self.conn.execute(f"SELECT {_CHAT_COLS} FROM assistant_messages WHERE {query} ORDER BY id",
+                                 args).fetchall()
+        return [_chat_row(r) for r in rows]
+
+    def mark_assistant_delivered(self, message_id: int, now: int) -> None:
+        with self.transaction() as conn:
+            conn.execute("UPDATE assistant_messages SET delivered_at = COALESCE(delivered_at, ?) WHERE id = ?",
+                         (now, message_id))
 
     # -------------------------------------------------------------- deals
 
@@ -374,3 +421,9 @@ class Store:
 
 _FLAG_COLS = ("flag_id, tx, deal_id, edition, classification, rule, deal_version, owed_json, "
               "evidence_json, trace_json, status, created_at, updated_at")
+
+_CHAT_COLS = "id, role, text, at, delivered_at"
+
+
+def _chat_row(row) -> dict[str, Any]:
+    return dict(zip(("id", "role", "text", "at", "delivered_at"), row))

@@ -209,6 +209,22 @@ export interface Registry {
   parties: RegistryParty[];
 }
 
+export interface ChatMessage {
+  id: number;
+  role: "user" | "agent";
+  text: string;
+  at: string;
+  delivered: boolean | null; // for the app's messages: has Omega received it yet?
+}
+
+export interface AssistantStatus {
+  configured: boolean;
+  connected: boolean;
+  connected_at: string | null;
+  last_heard_at: string | null;
+  detail: string;
+}
+
 export interface SimResult {
   scenario: string;
   note: string;
